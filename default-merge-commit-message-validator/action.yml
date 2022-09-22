@@ -1,0 +1,65 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#          http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'Default Commit Message Validator'
+description: 'Checks default commit message to ensure it meets requirements'
+inputs:
+  regex:
+    description: 'Regular Expression to check against'
+    required: true
+    default: '^[A-Z]+-[0-9]+'
+runs:
+  using: "composite"
+  steps:
+    - name: Get current PR title
+      uses: octokit/request-action@v2.x
+      id: get_pr_title
+      with:
+        route: get /repos/{repository}/issues/{issue_number}
+        repository: ${{ github.repository }}
+        issue_number: ${{ github.event.number }}
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Check PR title
+      shell: bash
+      run: | 
+        if [[ ! "${{ fromJSON(steps.get_pr_title.outputs.data).title }}" =~ ${{ inputs.regex }} ]];
+        then
+          echo "The PR title does not match this regex: ${{ inputs.regex }}"
+          exit 1
+        fi;
+
+    - name: Clone Repository (Base)
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+
+    - name: Check commit message
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+          NUM_COMMITS=$((`git rev-list --count $HEAD_SHA ^$BASE_SHA`))
+          GIT_MESSAGE=`git log -n 1 --format=%B $HEAD_SHA`
+          echo BASE_SHA - $BASE_SHA
+          echo HEAD_SHA - $HEAD_SHA
+          echo HEAD SHA - `git rev-parse HEAD`
+          echo HEAD^ SHA - `git rev-parse HEAD^`
+          echo Number of Commits - $NUM_COMMITS
+          echo Git Message - $GIT_MESSAGE
+          if [[ $NUM_COMMITS == 1 && ! "$GIT_MESSAGE" =~ ${{ inputs.regex }} ]];
+          then
+            echo "This PR has only one commit, and thus the commit message must match this regex: ${{ inputs.regex }}"
+            exit 1
+          fi;
